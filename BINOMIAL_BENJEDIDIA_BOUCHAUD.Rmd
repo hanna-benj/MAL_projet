@@ -1,0 +1,598 @@
+---
+title: "Projet de MAL: Analyse du jeu de donnée Caesarian"
+author: "Elena BOUCHAUD, Hanna BEN JEDIDIA "
+date: "8 janvier 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Dans le cadre de notre projet de MAL, nous avons choisi d’étudier le jeu de données concernant les césariennes
+lors d’un accouchement. Celui-ci est composé de 80 observations et de 9 variables qui sont : l’âge, le nombre
+d’enfants à naı̂tre, l’accouchement à terme, prématurément ou en retard, la pression sanguine, l’existence ou
+non de problèmes cardiaques, l’accouchement avec ou sans césarienne. Le but de notre étude est de choisir un
+modèle de classification qui nous permet de prédire au mieux le besoin d’une césarienne lors d’un accouchement.
+Le jeu de données n’est pas représentatif de la population quant au nombre de grossesses gémellaires et plus.
+Cependant, il permet de déterminer même lors de rares cas tel que la naissance de quadruplés, le besoin ou non
+de césarienne.
+
+```{r echo = FALSE, message = FALSE}
+library(naivebayes)
+library(MASS)
+library(randomForest)
+library(ipred)
+library(tree)
+library(ROCR)
+library(DAAG)
+library(splitstackshape)
+library(class)
+library(nnet)
+```
+
+## Classification sur le jeu de donnée initial
+
+```{r echo = FALSE, message = FALSE}
+X = data.frame(read.table("/home/hanna_benj/Documents/semestre5/MAL/MAL_projet/caesarian.csv", sep = ",", header = TRUE))
+X$Caesarian <- as.character(X$Caesarian)
+X$Caesarian <- as.factor(X$Caesarian)
+```
+
+### CART
+
+K-fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+er1 =c(1:k)
+for (i in 1:k){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  resSim = tree(Caesarian~.,data = tabSim)
+  pred1 = predict(resSim, newdata = tabTest)
+  difference= table(pred1[,2]>0.5,tabTest$Caesarian)
+  er1[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+boxplot(er1)
+```
+
+Roc curve
+
+```{r echo = FALSE}
+kTree = which(grepl(min(er1),er1))
+tabSim = X[setdiff(1:n,((kTree-1)*pas):(kTree*pas)),] #On retire la k-ieme partition
+tabTest = X[((kTree-1)*pas):(kTree*pas),]
+resSim = tree(Caesarian~.,data = tabSim)
+pred1 = predict(resSim, newdata = tabTest)
+p = prediction(pred1[,2],tabTest$Caesarian)
+perf = performance(p,"tpr","fpr")
+plot(perf)
+```
+###Random Forest
+
+K-fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erRF =c(1:k)
+for (i in 1:k){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  modFor2 = randomForest(Caesarian~.,data = tabSim)
+  pred4 = predict(modFor2,newdata = tabTest, type ="prob")
+  difference= table(pred4[,2]>0.5,tabTest$Caesarian)
+  erRF[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(erRF)
+boxplot(erRF)
+```
+ROC curve
+
+```{r echo = FALSE}
+kRF = which(grepl(min(erRF),erRF))
+tabSim = X[setdiff(1:n,((kRF-1)*pas):(kRF*pas)),] #On retire la k-ieme partition
+tabTest = X[((kRF-1)*pas):(kRF*pas),]
+modFor2 = randomForest(Caesarian~.,data = tabSim)
+pred4 = predict(modFor2,newdata = tabTest, type ="prob")
+p3 = prediction(pred4[,2],tabTest$Caesarian)
+perf3 = performance(p3,"tpr","fpr")
+plot(perf3, col = "red")
+```
+
+### Bagging
+
+K-fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erBag =c(1:k)
+for (i in 1:k){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  modbag = bagging(Caesarian~.,data = tabSim,coob=TRUE)
+  pred3 = predict(modbag,newdata = tabTest, type ="prob")
+  difference= table(pred3[,2]>0.5,tabTest$Caesarian)
+  erBag[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(erBag)
+boxplot(erBag)
+```
+
+ROC Curve
+
+```{r echo = FALSE}
+kBag = which(grepl(min(erBag),erBag))
+tabSim = X[setdiff(1:n,((kBag-1)*pas):(kBag*pas)),] #On retire la k-ieme partition
+tabTest = X[((kBag-1)*pas):(kBag*pas),]
+modbag = bagging(Caesarian~.,data = tabSim,coob=TRUE)
+pred3 = predict(modbag,newdata = tabTest, type ="prob")
+p2 = prediction(pred3[,2],tabTest$Caesarian)
+perf2 = performance(p2,"tpr","fpr")
+plot(perf2, col = "blue")
+```
+
+###Bayes
+
+K-Fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erBayes =c(1:k)
+for (i in 1:k){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  modbayes = naive_bayes(Caesarian~.,data=tabSim)
+  pred8 = predict(modbayes,newdata = tabTest, type ="prob")
+  difference= table(pred8[,2]>0.5,tabTest$Caesarian)
+  erBayes[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(erBayes)
+boxplot(erBayes)
+kBayes = which(grepl(min(erBayes),erBayes))
+tabSim = X[setdiff(1:n,((kBayes-1)*pas):(kBayes*pas)),] #On retire la k-ieme partition
+tabTest = X[((kBayes-1)*pas):(kBayes*pas),]
+modbayes = naive_bayes(Caesarian~.,data=tabSim)
+pred8 = predict(modbayes,newdata = tabTest, type ="prob")
+p7 = prediction(pred8[,2],tabTest$Caesarian)
+perf7 = performance(p7,"tpr","fpr")
+plot(perf7, col = "purple")
+```
+
+ROC Curve
+
+```{r echo = FALSE}
+kBayes = which(grepl(min(erBayes),erBayes))
+tabSim = X[setdiff(1:n,((kBayes-1)*pas):(kBayes*pas)),] #On retire la k-ieme partition
+tabTest = X[((kBayes-1)*pas):(kBayes*pas),]
+modbayes = naive_bayes(Caesarian~.,data=tabSim)
+pred8 = predict(modbayes,newdata = tabTest, type ="prob")
+p7 = prediction(pred8[,2],tabTest$Caesarian)
+perf7 = performance(p7,"tpr","fpr")
+plot(perf7, col = "purple")
+```
+
+### ADL
+
+K-fold.
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erADL =c(1:k)
+for (i in 1:k){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  modLDA = lda(Caesarian~.,data=tabSim)
+  pred5 = predict(modLDA,newdata = tabTest, method="predictive")
+  difference= table(pred5$posterior[,2]>0.5,tabTest$Caesarian)
+  erADL[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(erADL)
+boxplot(erADL)
+```
+
+ROC Curve
+
+```{r echo = FALSE}
+kADL = which(grepl(min(erADL),erADL))
+tabSim = X[setdiff(1:n,((kADL-1)*pas):(kADL*pas)),] #On retire la k-ieme partition
+tabTest = X[((kADL-1)*pas):(kADL*pas),]
+modLDA = lda(Caesarian~.,data=tabSim)
+pred5 = predict(modLDA,newdata = tabTest, method="predictive")
+p4 = prediction(pred5$posterior[,2],tabTest$Caesarian)
+perf4 = performance(p4,"tpr","fpr")
+plot(perf4, col = "green")
+```
+
+### QDA
+
+K-fold
+
+```{r echo = FALSE, warning= FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erQDA =c(1:k)
+for (i in 1:k){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  modQDA = qda(Caesarian~.,data=tabSim)
+  pred6 = predict(modQDA,newdata = tabTest, method="predictive")
+  difference= table(pred6$posterior[,2]>0.5,tabTest$Caesarian)
+  erQDA[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(erQDA)
+boxplot(erQDA)
+```
+
+ROC Curve
+
+```{r echo = FALSE, warning= FALSE}
+kQDA = which(grepl(min(erQDA),erQDA))
+tabSim = X[setdiff(1:n,((kQDA-1)*pas):(kQDA*pas)),] #On retire la k-ieme partition
+tabTest = X[((kQDA-1)*pas):(kQDA*pas),]
+modQDA = qda(Caesarian~.,data=tabSim)
+pred6 = predict(modQDA,newdata = tabTest, method="predictive")
+p5 = prediction(pred6$posterior[,2],tabTest$Caesarian)
+perf5 = performance(p5,"tpr","fpr")
+plot(perf5, col = "orange")
+```
+
+### Logistic Regression
+
+K-fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erLR =c(1:k)
+for (i in 1:k){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  modlogreg = glm(Caesarian~.,data=tabSim, family = "binomial")
+  pred7 = predict(modlogreg,newdata = tabTest, method="predictive")
+  difference= table(pred7>0.5,tabTest$Caesarian)
+  erLR[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(erLR)
+boxplot(erLR)
+```
+ROC Curve 
+
+```{r echo = FALSE}
+kLR = which(grepl(min(erLR),erLR))
+tabSim = X[setdiff(1:n,((kLR-1)*pas):(kLR*pas)),] #On retire la k-ieme partition
+tabTest = X[((kLR-1)*pas):(kLR*pas),]
+modlogreg = glm(Caesarian~.,data=tabSim, family = "binomial")
+pred7 = predict(modlogreg,newdata = tabTest, method="predictive")
+p6 = prediction(pred7,tabTest$Caesarian)
+perf6 = performance(p6,"tpr","fpr")
+plot(perf6, col = "brown")
+```
+
+### KNN
+
+K-fold
+
+```{r echo = FALSE}
+r = vector(length=10)
+kk=3
+valk = vector(length=3)
+n = dim(X)[1]
+pas = floor(n/kk)
+erKNN =c(1:kk)
+for(i in 1:kk){
+  tabSim = X[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X[((i-1)*pas):(i*pas),] #Données de test
+  for(j in 1:10){
+    knnModel = knn(train = tabSim, test = tabTest, cl = tabSim$Caesarian, k = j, prob = TRUE)
+    difference= table(attributes(knnModel)$prob>0.5,tabTest$Caesarian)
+    r[j]=(difference[2] + difference[3]) / length(tabTest[,1])
+  }
+  valk[i] = which(grepl(min(r),r))
+  knnModel = knn(train = tabSim, test = tabTest, cl = tabSim$Caesarian, k = valk[i], prob = TRUE)
+  difference= table(attributes(knnModel)$prob>0.5,tabTest$Caesarian)
+  erKNN[i]=(difference[2] + difference[3]) / length(tabTest[,1])
+}
+boxplot(erKNN)
+```
+ROC Curve
+
+```{r echo = FALSE}
+kKNN = which(grepl(min(erKNN),erKNN))
+tabSim = X[setdiff(1:n,((kKNN-1)*pas):(kKNN*pas)),] #On retire la k-ieme partition
+tabTest = X[((kKNN-1)*pas):(kKNN*pas),]
+knnModel = knn(train = tabSim, test = tabTest, cl = tabSim$Caesarian, k = valk[kKNN], prob = TRUE)
+p8 = prediction(attributes(knnModel)$prob,tabTest$Caesarian)
+perf8 = performance(p8,"tpr","fpr")
+plot(perf8, col = "chartreuse4")
+```
+
+## Comparaison des modèles
+
+Boxplot des erreurs
+
+```{r echo = FALSE, warning= FALSE}
+boxplot(er1,erRF,erBag,erBayes,erADL,erQDA,erLR,erKNN, names = c('CART','RF', "BAGGING", "BAYES","ADL","QDA", "LR", "KNN"),cex = 0.5, main = "Boxplot des erreurs")
+```
+
+ROC Curve
+
+```{r echo = FALSE, warning= FALSE}
+plot(perf, main = "ROC CURVE")
+plot(perf2, add = TRUE, col = "blue")
+plot(perf3, add = TRUE, col = "red")
+plot(perf4, add = TRUE, col = "green")
+plot(perf5, add = TRUE, col = "orange")
+plot(perf6, add = TRUE, col = "brown")
+plot(perf7, add = TRUE, col = "purple")
+plot(perf8, add = TRUE, col = "chartreuse4")
+legend(0.7,0.8,legend=c("CART","Bagging", "Random Forest", "ADL", "QDA", "Logistic Regression", "Bayes", "KNN"), col=c("black","blue","red","green","orange","brown","purple", "chartreuse4"),lty=1, cex=0.8, ncol=1)
+```
+
+## Classification sur le jeu de donnée éclaté
+
+```{r echo = FALSE, message = FALSE}
+delivery = class.ind(X$Delivery.number)
+X2 = X[,-2]
+X2 = cbind(X2,delivery)
+names(X2)[6]<-"One.Child"
+names(X2)[7]<-"Two.Children"
+names(X2)[8]<-"Three.Children"
+names(X2)[9]<-"Four.Children"
+```
+
+### CART
+
+K-fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X2)[1]
+pas = floor(n/k)
+er2 =c(1:k)
+for (i in 1:k){
+  tabSimSplit = X2[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTestSplit = X2[((i-1)*pas):(i*pas),] #Données de test
+  resSimSplit = tree(Caesarian~.,data = tabSimSplit)
+  pred2 = predict(resSimSplit, newdata = tabTestSplit)
+  difference2= table(pred2[,2]>0.5,tabTestSplit$Caesarian)
+  er2[i] = (difference2[2] + difference2[3]) / length(tabTestSplit[,1]) #Erreur totaletabSim
+}
+m = mean(er2)
+boxplot(er2)
+```
+
+Roc curve
+
+```{r echo = FALSE}
+kTree = which(grepl(min(er1),er1))
+tabSim = X2[setdiff(1:n,((kTree-1)*pas):(kTree*pas)),] #On retire la k-ieme partition
+tabTest = X2[((kTree-1)*pas):(kTree*pas),]
+resSim = tree(Caesarian~.,data = tabSim)
+pred2 = predict(resSim, newdata = tabTest)
+p2 = prediction(pred2[,2],tabTestSplit$Caesarian)
+perfTree = performance(p2,"tpr","fpr")
+```
+###Random Forest
+
+K-fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X2)[1]
+pas = floor(n/k)
+erRFSplit =c(1:k)
+for (i in 1:k){
+  tabSim = X2[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTestRFSplit = X2[((i-1)*pas):(i*pas),] #Données de test
+  modForRF = randomForest(Caesarian~.,data = tabSim)
+  pred5 = predict(modForRF,newdata = tabTestRFSplit, type ="prob")
+  difference= table(pred5[,2]>0.5,tabTestRFSplit$Caesarian)
+  erRFSplit[i] = (difference[2] + difference[3]) / length(tabTestRFSplit[,1]) #Erreur totaletabSim
+}
+m = mean(erRFSplit)
+boxplot(erRFSplit)
+
+```
+ROC curve
+
+```{r echo = FALSE}
+kRF = which(grepl(min(erRF),erRF))
+tabSim = X2[setdiff(1:n,((kRF-1)*pas):(kRF*pas)),] #On retire la k-ieme partition
+tabTest = X2[((kRF-1)*pas):(kRF*pas),]
+modForRF = randomForest(Caesarian~.,data = tabSim)
+pred5 = predict(modForRF,newdata = tabTestRFSplit, type ="prob")
+p4 = prediction(pred5[,2],tabTest$Caesarian)
+perfRFS = performance(p4,"tpr","fpr")
+```
+
+### Bagging
+
+K-fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erBagSplit =c(1:k)
+for (i in 1:k){
+  tabSim = X2[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTestBag = X2[((i-1)*pas):(i*pas),] #Données de test
+  modbagS = bagging(Caesarian~.,data = tabSim,coob=TRUE)
+  pred6 = predict(modbagS,newdata = tabTestBag, type ="prob")
+  difference= table(pred6[,2]>0.5,tabTestBag$Caesarian)
+  erBagSplit[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(erBagSplit)
+boxplot(erBagSplit)
+```
+
+ROC Curve
+
+```{r echo = FALSE}
+kBag = which(grepl(min(erBag),erBag))
+tabSim = X2[setdiff(1:n,((kBag-1)*pas):(kBag*pas)),] #On retire la k-ieme partition
+tabTest = X2[((kBag-1)*pas):(kBag*pas),]
+modbagS = bagging(Caesarian~.,data = tabSim,coob=TRUE)
+pred6 = predict(modbagS,newdata = tabTest, type ="prob")
+p5 = prediction(pred6[,2],tabTest$Caesarian)
+perfBagS = performance(p5,"tpr","fpr")
+```
+
+###Bayes
+
+K-Fold
+
+```{r echo = FALSE}
+k=3
+n = dim(X)[1]
+pas = floor(n/k)
+erBayesS =c(1:k)
+for (i in 1:k){
+  tabSim = X2[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTestBayes = X2[((i-1)*pas):(i*pas),] #Données de test
+  modbayesS = naive_bayes(Caesarian~.,data=tabSim)
+  predBayesS = predict(modbayes,newdata = tabTestBayes, type ="prob")
+  difference= table(predBayesS[,2]>0.5,tabTestBayes$Caesarian)
+  erBayesS[i] = (difference[2] + difference[3]) / length(tabTestBayes[,1]) #Erreur totaletabSim
+}
+m = mean(erBayesS)
+boxplot(erBayesS)
+
+```
+
+ROC Curve
+
+```{r echo = FALSE}
+kBayes = which(grepl(min(erBayes),erBayes))
+tabSim = X2[setdiff(1:n,((kBayes-1)*pas):(kBayes*pas)),] #On retire la k-ieme partition
+tabTest = X2[((kBayes-1)*pas):(kBayes*pas),]
+modbayesS = naive_bayes(Caesarian~.,data=tabSim)
+predBayesS = predict(modbayesS,newdata = tabTest, type ="prob")
+pbs = prediction(predBayesS[,2],tabTestBayes$Caesarian)
+perfbs = performance(pbs,"tpr","fpr")
+```
+
+### KNN
+
+K-fold
+
+```{r echo = FALSE}
+r = vector(length=10)
+kk=3
+valk = vector(length=3)
+n = dim(X)[1]
+pas = floor(n/kk)
+erKNNS =c(1:kk)
+for(i in 1:kk){
+  tabSim = X2[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = X2[((i-1)*pas):(i*pas),] #Données de test
+  for(j in 1:10){
+    knnModel = knn(train = tabSim, test = tabTest, cl = tabSim$Caesarian, k = j, prob = TRUE)
+    difference= table(attributes(knnModel)$prob>0.5,tabTest$Caesarian)
+    r[j]=(difference[2] + difference[3]) / length(tabTest[,1])
+  }
+  valk[i] = which(grepl(min(r),r))
+  knnModel = knn(train = tabSim, test = tabTest, cl = tabSim$Caesarian, k = valk[i], prob = TRUE)
+  difference= table(attributes(knnModel)$prob>0.5,tabTest$Caesarian)
+  erKNNS[i]=(difference[2] + difference[3]) / length(tabTest[,1])
+}
+boxplot(erKNNS)
+```
+ROC Curve
+
+```{r echo = FALSE}
+kKNNS = which(grepl(min(erKNNS),erKNNS))
+tabSim = X2[setdiff(1:n,((kKNNS-1)*pas):(kKNNS*pas)),] #On retire la k-ieme partition
+tabTest = X2[((kKNNS-1)*pas):(kKNNS*pas),]
+knnModel = knn(train = tabSim, test = tabTest, cl = tabSim$Caesarian, k = valk[kKNN], prob = TRUE)
+p8 = prediction(attributes(knnModel)$prob,tabTest$Caesarian)
+perfKNNS = performance(p8,"tpr","fpr")
+```
+
+###Comparaison avec le jeu de donnée précédant et entre les modèles du nouveau jeu de donnée
+
+Comparaison des erreurs
+
+```{r echo = FALSE}
+boxplot(er1,er2, names = c('Tree','TreeSplit'),cex = 0.5)
+boxplot(erRF,erRFSplit, names = c('RF','RFSplit'),cex = 0.5)
+boxplot(erBag,erBagSplit, names = c('Bagging','BaggingSplit'),cex = 0.5)
+boxplot(erBayes,erBayesS, names = c('Bayes','BayesSplit'),cex = 0.5)
+boxplot(erADL,erADLS, names = c('ADL','ADLSplit'),cex = 0.5)
+boxplot(erQDA,erQDAS, names = c('QDA','QDASplit'),cex = 0.5)
+boxplot(erLR,erLRS, names = c('LR','LRSplit'),cex = 0.5)
+boxplot(er2,erRFSplit,erBagSplit,erBayesS, erKNNS, names = c('CART','Random Forest','Bagging','Bayes', 'KNN'))
+```
+
+Comparaison des ROC Curves
+
+```{r echo = FALSE}
+plot(perf) # Tree
+plot(perfTree, col ="purple")
+plot(perf3,add= TRUE,  col = "red") #Random Forest
+plot(perfRFS,add= TRUE, col = "orange")
+plot(perf5,add= TRUE, col = "blue") #Bagging
+plot(perf2,add= TRUE, col = "blue")
+plot(perf7,add = TRUE, col = "green")#Bayes
+plot(perfbs,add = TRUE, col = "red") 
+plot(perf4,add = TRUE, col = "aquamarine1") #ADL
+plot(perfADLS,add = TRUE, col = "darksalmon")
+plot(perf5,add = TRUE, col = "chocolate3") #QDA
+plot(perfQDAS,add = TRUE, col = "brown3")
+plot(perf6,add = TRUE, col = "burlywood2") # Logistic Regression
+plot(perfLRS,add = TRUE, col = "chartreuse1")
+plot(perfKNNS,add = TRUE, col = "green")
+```
+
+## Tantative d'amélioration du jeu de donnée : Duplication du jeu de donnée
+
+```{r echo = FALSE}
+Z = expandRows(X, count = 2, count.is.col = FALSE)
+Z$Caesarian <- as.character(X$Caesarian)
+Z$Caesarian <- as.factor(X$Caesarian)
+Y = Z[sample(nrow(Z)),]
+```
+
+###Tree
+
+```{r echo = FALSE}
+k=10
+n = dim(Y)[1]
+pas = floor(n/k)
+er1 =c(1:k)
+for (i in 1:k){
+  tabSim = Y[setdiff(1:n,((i-1)*pas):(i*pas)),] #On retire la k-ieme partition
+  tabTest = Y[((i-1)*pas):(i*pas),] #Données de test
+  resSim = tree(Caesarian~.,data = tabSim)
+  pred1 = predict(resSim, newdata = tabTest)
+  difference= table(pred1[,2]>0.5,tabTest$Caesarian)
+  er1[i] = (difference[2] + difference[3]) / length(tabTest[,1]) #Erreur totaletabSim
+}
+m = mean(er1)
+boxplot(er1)
+p = prediction(pred1[,2],tabTest$Caesarian)
+perf = performance(p,"tpr","fpr")
+plot(perf)
+```
+
+## Conclusion
+
+Après analyse des différents modèles et du jeu de données, nous choisissons d’éclater la variable Delivery
+Number en quatre, cela permettant d’obtenir des erreurs plus petites, et de prédire le besoin ou non de césarienne
+pour une femme enceinte avec le modèle de Bayes. Cette analyse reste peu précise étant donné le nombre restreint
+d’observations.
